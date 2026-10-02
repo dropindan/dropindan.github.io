@@ -1,0 +1,26 @@
+{
+  "start_urls": [
+    "https://quotes.toscrape.com/"
+  ],
+  "item_selector": "div.quote",
+  "fields": {
+    "text": "span.text",
+    "author": "small.author",
+    "author_link": { "selector": "span a", "attr": "href" },
+    "tags": "div.tags"
+  },
+  "next_page_selector": "li.next a",
+  "max_pages": 3,
+  "wait_for_selector": "div.quote",
+  "infinite_scroll": false,
+  "max_scrolls": 30,
+  "scroll_step_min_px": 300,
+  "scroll_step_max_px": 800,
+  "scroll_pause_min_ms": 500,
+  "scroll_pause_max_ms": 1800,
+  "delay_min_seconds": 1,
+  "delay_max_seconds": 3,
+  "timeout_ms": 30000,
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "output": "quotes.json"
+}

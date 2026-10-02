@@ -1,0 +1,6 @@
+.venv/
+.browser-profile/
+*.json
+!configs/*.json
+*.csv
+__pycache__/
