@@ -40,9 +40,10 @@ def load_config(path: str) -> dict:
 
 
 def polite_delay(config: dict) -> None:
+    """Sleep a random, human-like interval between page loads."""
     lo = config.get("delay_min_seconds", 1.0)
-    hi = config.get("delay_max_seconds", 3.0)
-    time.sleep(random.uniform(lo, min(lo, hi) if hi < lo else hi))
+    hi = max(config.get("delay_max_seconds", 3.0), lo)
+    time.sleep(random.uniform(lo, hi))
 
 
 def extract_field(element, spec) -> str:
@@ -66,16 +67,46 @@ def extract_field(element, spec) -> str:
 
 
 def scroll_to_bottom(page, config: dict) -> None:
-    """Handle infinite-scroll pages by scrolling until height stops growing."""
-    max_scrolls = config.get("max_scrolls", 10)
+    """Scroll an infinite-scroll page like a human until it stops growing.
+
+    Instead of jumping straight to the bottom, this scrolls down in small,
+    randomly-sized steps with jittered pauses between them, occasionally
+    nudging back up a little and now and then taking a longer "reading"
+    pause. That cadence looks far more like a real person than a single
+    programmatic jump, which many sites flag.
+    """
+    max_scrolls = config.get("max_scrolls", 30)
+    step_min = config.get("scroll_step_min_px", 300)
+    step_max = config.get("scroll_step_max_px", 800)
+    pause_min = config.get("scroll_pause_min_ms", 500)
+    pause_max = config.get("scroll_pause_max_ms", 1800)
+
+    stagnant = 0
     last_height = 0
-    for _ in range(max_scrolls):
+    for i in range(max_scrolls):
         height = page.evaluate("document.body.scrollHeight")
-        if height == last_height:
-            break
+        offset = page.evaluate("window.scrollY + window.innerHeight")
+        # Stop once new content has stopped loading at the bottom.
+        if height == last_height and offset >= height - 2:
+            stagnant += 1
+            if stagnant >= 2:
+                break
+        else:
+            stagnant = 0
         last_height = height
-        page.mouse.wheel(0, height)
-        page.wait_for_timeout(int(config.get("scroll_pause_ms", 1500)))
+
+        step = random.randint(int(step_min), int(step_max))
+        page.mouse.wheel(0, step)
+        page.wait_for_timeout(random.randint(int(pause_min), int(pause_max)))
+
+        # Occasionally scroll back up a touch, the way people do.
+        if random.random() < 0.15:
+            page.mouse.wheel(0, -random.randint(80, 200))
+            page.wait_for_timeout(random.randint(300, 900))
+
+        # Every so often, a longer pause as if reading.
+        if random.random() < 0.1:
+            page.wait_for_timeout(random.randint(1500, 3500))
 
 
 def scrape_page(page, config: dict) -> list[dict]:
