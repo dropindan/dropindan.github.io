@@ -105,7 +105,15 @@ python fetch.py configs/example.json --proxies http://user:pass@h1:port,http://h
   ],
   "max_retries": 4,                  // retries on 403/429/5xx before giving up
   "backoff_base_seconds": 1,         // exponential backoff base
-  "backoff_cap_seconds": 30          // backoff ceiling
+  "backoff_cap_seconds": 30,         // backoff ceiling
+
+  // route every target URL through a scraping-API gateway (see below)
+  "api_gateway": {
+    "endpoint": "https://api.scraperapi.com/",
+    "api_key_env": "SCRAPERAPI_KEY",
+    "url_param": "url",
+    "params": { "render": "true" }
+  }
 }
 ```
 
@@ -161,6 +169,45 @@ up to `max_retries` times, sleeping `backoff_base_seconds * 2**attempt` (capped
 at `backoff_cap_seconds`) with full jitter between tries. A `Retry-After`
 response header is honored when present. After the last attempt the URL is
 skipped rather than crashing the run.
+
+## Routing through a scraping-API gateway (fast mode)
+
+Instead of (or as well as) your own proxies, `fetch.py` can forward every
+target URL through a hosted scraping API such as
+[ScraperAPI](https://docs.scraperapi.com/synchronous-apis/using-the-api-endpoint),
+which handles proxies, rendering, and anti-bot for you. Add an `api_gateway`
+block to the config — see `configs/scraperapi-example.json`:
+
+```jsonc
+"api_gateway": {
+  "endpoint": "https://api.scraperapi.com/",
+  "api_key_env": "SCRAPERAPI_KEY",   // env var that holds your key
+  "api_key_param": "api_key",        // query param name for the key
+  "url_param": "url",                // query param that carries the target URL
+  "params": { "render": "true", "country_code": "us" }  // any extra params
+}
+```
+
+Then export your key and run:
+
+```bash
+export SCRAPERAPI_KEY=your_key_here
+python fetch.py configs/scraperapi-example.json
+```
+
+Each request becomes
+`https://api.scraperapi.com/?api_key=KEY&url=<target>&render=true&country_code=us`,
+and the gateway returns the target page's HTML, which is parsed with your
+normal selectors. Notes:
+
+- The **API key is read from the environment**, never stored in the config, so
+  the config is safe to commit.
+- `_source_url` in the output and all pagination stay on the **real target
+  URL**, not the gateway URL, so `next_page_selector` links resolve correctly.
+- The block is **generic**: point `endpoint`/`*_param`/`params` at any
+  forward-proxy API with the same "pass my URL as a query parameter" shape.
+- Hosted gateways can be slow (ScraperAPI may take up to ~70s with `render`),
+  so the example sets a generous `timeout_ms` and backoff.
 
 > These measures make scraping gentler and more natural; they are not a license
 > to evade a site's access controls. Scrape only what you're permitted to, and

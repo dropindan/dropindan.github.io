@@ -23,10 +23,12 @@ See README.md for the full config format.
 
 import argparse
 import itertools
+import os
 import random
+import sys
 import time
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
@@ -161,6 +163,46 @@ def scrape_html(html: str, url: str, config: dict) -> list[dict]:
     return rows
 
 
+def build_request_url(target_url: str, config: dict) -> str:
+    """Wrap a target URL in an API gateway request, if one is configured.
+
+    With no "api_gateway" block this returns target_url unchanged (direct
+    fetch). Otherwise it builds a gateway request such as ScraperAPI's:
+
+        https://api.scraperapi.com/?api_key=KEY&url=<target>&render=true
+
+    The gateway block is generic so it fits other forward-proxy APIs too:
+
+        "api_gateway": {
+          "endpoint": "https://api.scraperapi.com/",
+          "api_key_env": "SCRAPERAPI_KEY",   // env var holding the key
+          "api_key_param": "api_key",        // query param name for the key
+          "url_param": "url",                // query param carrying the target
+          "params": { "render": "true", "country_code": "us" }
+        }
+
+    The API key is read from the environment, never stored in the config.
+    """
+    gw = config.get("api_gateway")
+    if not gw:
+        return target_url
+
+    endpoint = gw.get("endpoint", "https://api.scraperapi.com/")
+    key_env = gw.get("api_key_env", "SCRAPERAPI_KEY")
+    api_key = os.environ.get(key_env)
+    if not api_key:
+        sys.exit(f"api_gateway is configured but env var {key_env!r} is not set. "
+                 f"Export it first, e.g.  export {key_env}=your_key")
+
+    params = {
+        gw.get("api_key_param", "api_key"): api_key,
+        gw.get("url_param", "url"): target_url,
+    }
+    params.update(gw.get("params", {}))
+    sep = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{sep}{urlencode(params)}"
+
+
 def find_next_url(html: str, current_url: str, config: dict) -> str | None:
     """Resolve the next page's URL from an anchor's href (no clicking here)."""
     next_selector = config.get("next_page_selector")
@@ -200,13 +242,18 @@ def main() -> None:
     max_pages = config.get("max_pages", 1)
     all_rows: list[dict] = []
     session = cffi_requests.Session()
+    if config.get("api_gateway"):
+        log(f"routing requests through API gateway "
+            f"{config['api_gateway'].get('endpoint', 'https://api.scraperapi.com/')}")
 
     for start_url in config["start_urls"]:
-        url = start_url
+        url = start_url  # the real target URL (what we extract and paginate against)
         page_num = 1
         while url:
             log(f"fetching {url}")
-            html = fetch_with_retries(url, session, rotator, config)
+            # When a gateway is configured, fetch the wrapped request URL but
+            # keep the real target URL for output and pagination.
+            html = fetch_with_retries(build_request_url(url, config), session, rotator, config)
             if html is None:
                 break
             all_rows.extend(scrape_html(html, url, config))

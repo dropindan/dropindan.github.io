@@ -1,0 +1,31 @@
+{
+  "start_urls": [
+    "https://quotes.toscrape.com/"
+  ],
+  "item_selector": "div.quote",
+  "fields": {
+    "text": "span.text",
+    "author": "small.author",
+    "author_link": { "selector": "span a", "attr": "href" },
+    "tags": "div.tags"
+  },
+  "next_page_selector": "li.next a",
+  "max_pages": 3,
+  "api_gateway": {
+    "endpoint": "https://api.scraperapi.com/",
+    "api_key_env": "SCRAPERAPI_KEY",
+    "api_key_param": "api_key",
+    "url_param": "url",
+    "params": {
+      "render": "true",
+      "country_code": "us"
+    }
+  },
+  "max_retries": 4,
+  "backoff_base_seconds": 2,
+  "backoff_cap_seconds": 60,
+  "timeout_ms": 70000,
+  "delay_min_seconds": 1,
+  "delay_max_seconds": 3,
+  "output": "quotes.json"
+}
