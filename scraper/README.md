@@ -1,12 +1,29 @@
-# Generic headed scraper
+# Generic scraper
 
-A config-driven web scraper that runs a **visible Chromium window** on your
-workstation using [Playwright](https://playwright.dev/python/). Because it's
-headed, you can watch it work, log in by hand, and solve captchas yourself —
-the browser profile is persisted between runs so you usually only log in once.
+A config-driven web scraper with **two modes** that share the same JSON config:
+
+- **`scrape.py` — headed browser mode** ([Playwright](https://playwright.dev/python/)).
+  Runs a **visible Chromium window** on your workstation, so you can watch it
+  work, log in by hand, and solve captchas yourself. The browser profile is
+  persisted between runs, so you usually only log in once. Runs JavaScript.
+- **`fetch.py` — fast browser-less mode** ([curl_cffi](https://github.com/lexiforest/curl_cffi)).
+  No browser, much faster and lighter, with a **real Chrome TLS/HTTP2
+  fingerprint**, **proxy rotation**, and **HTTP 403 retry with exponential
+  backoff**. Does **not** run JavaScript.
 
 All site-specific details live in a small JSON config of CSS selectors; the
-script itself never needs editing for a new site.
+scripts never need editing for a new site.
+
+### Which mode?
+
+| Use `fetch.py` (fast) when… | Use `scrape.py` (browser) when… |
+|---|---|
+| Static HTML or JSON APIs | Page content is rendered by JavaScript |
+| You need many requests, quickly | You need to log in / solve a captcha by hand |
+| You want proxy rotation + TLS fingerprinting | The page uses infinite scroll or complex interaction |
+
+A common setup is both: `fetch.py` for bulk pages, `scrape.py` for the few
+that truly need a browser.
 
 ## Setup (once)
 
@@ -15,16 +32,16 @@ cd scraper
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-playwright install chromium
+playwright install chromium       # only needed for scrape.py (browser mode)
 ```
 
 ## Run
 
+**Headed browser mode:**
+
 ```bash
 python scrape.py configs/example.json
 ```
-
-Useful flags:
 
 | Flag | What it does |
 |---|---|
@@ -33,6 +50,20 @@ Useful flags:
 | `--headless` | Run without a window (for servers/CI) |
 | `--profile-dir mydir` | Where cookies/logins are stored (default `.browser-profile`) |
 | `--executable-path /path/to/chrome` | Use your own Chrome/Chromium instead of Playwright's bundled one |
+
+**Fast browser-less mode:**
+
+```bash
+python fetch.py configs/example.json
+python fetch.py configs/example.json --impersonate chrome131
+python fetch.py configs/example.json --proxies http://user:pass@h1:port,http://h2:port
+```
+
+| Flag | What it does |
+|---|---|
+| `--out results.csv` | Output file; `.csv` or `.json` (default from config) |
+| `--impersonate chrome131` | curl_cffi fingerprint target (overrides config) |
+| `--proxies a,b,c` | Comma-separated proxy URLs to rotate through (overrides config) |
 
 ## Config format
 
@@ -62,13 +93,30 @@ Useful flags:
   "delay_min_seconds": 1,            // random delay between page loads
   "delay_max_seconds": 3,
   "timeout_ms": 30000,               // navigation/selector timeout
-  "user_agent": "Mozilla/5.0 ...",   // custom user-agent string
-  "output": "results.json"           // default output file
+  "user_agent": "Mozilla/5.0 ...",   // custom user-agent string (browser mode)
+  "output": "results.json",          // default output file
+
+  // --- fast browser-less mode only (fetch.py) ---
+  "impersonate": "chrome131",        // curl_cffi TLS/HTTP2 fingerprint target
+  "headers": { "Accept-Language": "en-US,en;q=0.9" },  // extra request headers
+  "proxies": [                       // proxies to rotate through (round-robin)
+    "http://user:pass@host1:port",
+    "http://host2:port"
+  ],
+  "max_retries": 4,                  // retries on 403/429/5xx before giving up
+  "backoff_base_seconds": 1,         // exponential backoff base
+  "backoff_cap_seconds": 30          // backoff ceiling
 }
 ```
 
 Every output row also gets a `_source_url` column recording the page it came
 from.
+
+> **Scroll vs. pagination by mode.** `infinite_scroll` and the `scroll_*` keys
+> apply only to the browser mode (`scrape.py`) — there's no JavaScript to scroll
+> in `fetch.py`. For pagination, `scrape.py` *clicks* the `next_page_selector`
+> element, while `fetch.py` reads that element's `href` and fetches the next URL
+> directly (so in fast mode the selector must point at a link).
 
 ## Looking human
 
@@ -91,6 +139,28 @@ to slow it down further on sensitive sites.
 
 The random delay between page loads (`delay_min_seconds`–`delay_max_seconds`)
 adds the same jitter to pagination.
+
+## Fingerprinting, proxies, and retries (fast mode)
+
+`fetch.py` adds three anti-blocking features that the browser mode gets for
+free (a real browser already has a real fingerprint and your real IP):
+
+**TLS/HTTP2 fingerprint.** `curl_cffi` reproduces a real browser's ClientHello
+and HTTP/2 settings, so the connection's JA3/JA4 fingerprint matches Chrome.
+Set `"impersonate"` to a specific version like `"chrome131"` (pin the version
+so your fingerprint doesn't drift on upgrade). Also set matching `"headers"`
+(e.g. `Accept-Language`) so your headers agree with the fingerprint.
+
+**Proxy rotation.** List proxies in `"proxies"` (or pass `--proxies`), and each
+request round-robins to the next one. A proxy that errors or returns 403/429 is
+dropped from the rotation automatically; with no proxies configured it connects
+directly.
+
+**403 retry with exponential backoff.** On a 403/429/5xx the request is retried
+up to `max_retries` times, sleeping `backoff_base_seconds * 2**attempt` (capped
+at `backoff_cap_seconds`) with full jitter between tries. A `Retry-After`
+response header is honored when present. After the last attempt the URL is
+skipped rather than crashing the run.
 
 > These measures make scraping gentler and more natural; they are not a license
 > to evade a site's access controls. Scrape only what you're permitted to, and

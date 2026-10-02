@@ -1,0 +1,26 @@
+{
+  "start_urls": [
+    "https://quotes.toscrape.com/"
+  ],
+  "item_selector": "div.quote",
+  "fields": {
+    "text": "span.text",
+    "author": "small.author",
+    "author_link": { "selector": "span a", "attr": "href" },
+    "tags": "div.tags"
+  },
+  "next_page_selector": "li.next a",
+  "max_pages": 3,
+  "impersonate": "chrome131",
+  "headers": {
+    "Accept-Language": "en-US,en;q=0.9"
+  },
+  "proxies": [],
+  "max_retries": 4,
+  "backoff_base_seconds": 1,
+  "backoff_cap_seconds": 30,
+  "delay_min_seconds": 1,
+  "delay_max_seconds": 3,
+  "timeout_ms": 30000,
+  "output": "quotes.json"
+}

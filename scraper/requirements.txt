@@ -1,1 +1,7 @@
+# Headed browser mode (scrape.py)
 playwright>=1.40
+
+# Fast browser-less mode (fetch.py)
+curl_cffi>=0.7
+beautifulsoup4>=4.12
+lxml>=5.0
